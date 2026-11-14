@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Kestrel Yard — Freight Terminal 7</title>
+<style>
+  /* Dusk freight terminal: amber sodium lamps, teal dusk sky, dark steel. */
+  :root {
+    --canvas: #14161a;
+    --surface: #1e2228;
+    --hairline: #2c323a;
+    --ink: #e9e2d2;
+    --muted: #98a0a8;
+    --amber: #f2a63b;
+    --teal: #35c4b5;
+    --red: #e5484d;
+    --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-readout: ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--canvas); color: var(--ink); font-family: var(--font-ui); }
+  #game, #game canvas { position: fixed; inset: 0; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 0; height: 0; --gap: 6px; }
+  #crosshair i { position: absolute; background: var(--ink); opacity: .9; }
+  #crosshair i:nth-child(1) { left: -1px; top: calc(-1 * var(--gap) - 7px); width: 2px; height: 7px; }
+  #crosshair i:nth-child(2) { left: -1px; top: var(--gap); width: 2px; height: 7px; }
+  #crosshair i:nth-child(3) { top: -1px; left: calc(-1 * var(--gap) - 7px); height: 2px; width: 7px; }
+  #crosshair i:nth-child(4) { top: -1px; left: var(--gap); height: 2px; width: 7px; }
+
+  #hitmarker { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
+  #hitmarker.on { opacity: 1; }
+  #hitmarker.kill i { background: var(--red); }
+  #hitmarker i { position: absolute; background: var(--amber); }
+  #hitmarker i:nth-child(1) { left: 12px; top: 0; width: 2px; height: 8px; }
+  #hitmarker i:nth-child(2) { left: 12px; bottom: 0; width: 2px; height: 8px; }
+  #hitmarker i:nth-child(3) { top: 12px; left: 0; height: 2px; width: 8px; }
+  #hitmarker i:nth-child(4) { top: 12px; right: 0; height: 2px; width: 8px; }
+
+  #damage-arc { position: fixed; left: 50%; top: 50%; width: 220px; height: 220px; transform: translate(-50%, -50%); border-radius: 50%; opacity: 0; pointer-events: none;
+    background: conic-gradient(from 0deg, transparent 0deg, rgba(229,72,77,.85) 18deg, transparent 36deg, transparent 360deg); }
+  #damage-arc.on { opacity: 1; }
+
+  #topbar { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 18px;
+    background: rgba(20,22,26,.72); border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 18px; font-family: var(--font-readout); }
+  .team-score { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .team-score b { font-size: 22px; }
+  .team-score.kestrel b, .team-score.kestrel .team-name { color: var(--amber); }
+  .team-score.harbor b, .team-score.harbor .team-name { color: var(--teal); }
+  .pips { display: inline-flex; gap: 3px; }
+  .pip { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  .pip.alive { background: currentColor; }
+  .pip.dead { opacity: .25; }
+  #timer { font-size: 22px; font-weight: 600; min-width: 64px; text-align: center; }
+  #timer.urgent { color: var(--red); }
+
+  #bomb-status { position: fixed; top: 66px; left: 50%; transform: translateX(-50%); font-family: var(--font-readout); font-size: 13px;
+    letter-spacing: .04em; background: rgba(20,22,26,.72); border: 1px solid var(--hairline); border-radius: 4px; padding: 5px 12px; color: var(--ink); }
+  #bomb-status.planted { color: var(--red); border-color: var(--red); }
+
+  #money { position: fixed; top: 14px; right: 24px; font-family: var(--font-readout); font-size: 20px; color: var(--amber);
+    background: rgba(20,22,26,.72); border: 1px solid var(--hairline); border-radius: 6px; padding: 8px 14px; }
+  #killfeed { position: fixed; top: 66px; right: 24px; text-align: right; font-family: var(--font-readout); font-size: 13px; color: var(--muted); display: grid; gap: 4px; }
+  #killfeed .kill { color: var(--red); }
+
+  #health-wrap { position: fixed; left: 28px; bottom: 24px; }
+  #health-bar { width: 220px; height: 14px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 3px; overflow: hidden; }
+  #health-fill { height: 100%; background: var(--teal); width: 100%; }
+  #health-fill.low { background: var(--red); }
+  #health-num { font-family: var(--font-readout); font-size: 34px; line-height: 1.1; }
+  #armor-num { font-family: var(--font-readout); font-size: 12px; color: var(--muted); }
+
+  #ammo-wrap { position: fixed; right: 28px; bottom: 24px; text-align: right; }
+  #ammo-mag { font-family: var(--font-readout); font-size: 54px; line-height: 1; }
+  #ammo-reserve { font-family: var(--font-readout); font-size: 16px; color: var(--muted); }
+  #ammo-wrap.empty #ammo-mag { color: var(--red); }
+  #weapon-name { font-family: var(--font-readout); font-size: 13px; color: var(--amber); margin-top: 4px; }
+  #reload-hint { font-size: 12px; color: var(--red); min-height: 16px; }
+
+  #round-banner { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); font-family: var(--font-readout); font-size: 26px; font-weight: 600;
+    letter-spacing: .05em; text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,.8); padding: 10px 22px; }
+  #round-banner.kestrel { color: var(--amber); }
+  #round-banner.harbor { color: var(--teal); }
+  #round-banner.info { color: var(--ink); font-size: 18px; }
+
+  #buy-menu { position: fixed; inset: 0; display: grid; place-items: start center; padding-top: 118px; background: rgba(20,22,26,.78); pointer-events: auto; }
+  #buy-menu[hidden] { display: none; }
+  #buy-menu h2 { margin: 0 0 6px; font-size: 24px; letter-spacing: .04em; }
+  #buy-menu .buy-money { color: var(--amber); font-family: var(--font-readout); }
+  .buy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(620px, 92vw); margin-top: 14px; }
+  .buy-grid button { font: inherit; text-align: left; padding: 12px 14px; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--hairline); border-radius: 6px; cursor: pointer; display: grid; gap: 3px; }
+  .buy-grid button:hover { border-color: var(--amber); }
+  .buy-grid button span { font-size: 12px; color: var(--muted); }
+
+  #scoreboard { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(20,22,26,.72); }
+  #scoreboard[hidden] { display: none; }
+  #scoreboard h2 { margin: 0; font-size: 30px; letter-spacing: .04em; text-align: center; }
+  #scoreboard p { text-align: center; color: var(--muted); font-family: var(--font-readout); }
+  #scoreboard table { border-collapse: collapse; font-family: var(--font-readout); font-size: 14px; margin: 12px auto 0; min-width: 520px; }
+  #scoreboard th, #scoreboard td { padding: 6px 14px; border-bottom: 1px solid var(--hairline); text-align: left; }
+  #scoreboard tr.me td { color: var(--amber); }
+
+  #toast { position: fixed; bottom: 120px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--amber);
+    color: var(--ink); padding: 8px 16px; border-radius: 6px; font-family: var(--font-readout); font-size: 14px; opacity: 0; }
+  #toast.on { opacity: 1; }
+
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(20,22,26,.86); }
+  .overlay[hidden] { display: none; }
+  .panel { width: min(480px, 100%); padding: 32px; background: var(--surface); border: 1px solid var(--hairline); border-radius: 6px; }
+  .panel h1 { margin: 0 0 4px; font-size: 34px; line-height: 1.1; letter-spacing: -.01em; }
+  .panel h1 span { color: var(--amber); }
+  .panel p { margin: 0 0 20px; font-size: 15px; line-height: 1.55; color: var(--muted); }
+  #play { font: inherit; font-weight: 600; padding: 12px 18px; border: 1px solid var(--amber); border-radius: 6px; background: var(--amber); color: var(--canvas); cursor: pointer; }
+  #play:hover { background: var(--ink); border-color: var(--ink); }
+  .keys { margin: 22px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; font-size: 13px; color: var(--muted); }
+  .keys li { display: flex; align-items: center; gap: 8px; }
+  .keys kbd { min-width: 24px; padding: 2px 6px; border: 1px solid var(--hairline); border-radius: 4px; font-family: var(--font-readout); font-size: 12px; color: var(--ink); text-align: center; }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud" aria-hidden="true"></div>
+
+<div id="overlay" class="overlay">
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
+    <h1 id="overlay-title">KESTREL YARD <span>— Freight Terminal 7</span></h1>
+    <p>5v5 tactical FPS. KESTREL attacks, HARBOR defends. Plant the bomb at Site A or B — or eliminate the other team. Earn money, buy better guns between rounds. First to 8 rounds takes the yard.</p>
+    <button id="play" type="button">Click to play</button>
+    <ul class="keys">
+      <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move &nbsp; <kbd>Mouse</kbd> Look &nbsp; <kbd>Click</kbd> Fire</li>
+      <li><kbd>R</kbd> Reload &nbsp; <kbd>Space</kbd> Jump &nbsp; <kbd>Ctrl</kbd> Crouch</li>
+      <li><kbd>B</kbd> Buy menu &nbsp; <kbd>E</kbd> Plant / defuse (hold) &nbsp; <kbd>1</kbd>–<kbd>6</kbd> Buy</li>
+    </ul>
+  </section>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
